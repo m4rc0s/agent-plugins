@@ -1,0 +1,13 @@
+{
+  "name": "agent-plugins",
+  "owner": {
+    "name": "Marcos Araujo"
+  },
+  "plugins": [
+    {
+      "name": "scpe",
+      "source": "./plugins/scpe",
+      "description": "SCPE (Spec-Compiled Product Engineering) workflow plugin"
+    }
+  ]
+}
