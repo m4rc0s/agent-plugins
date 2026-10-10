@@ -1,12 +1,30 @@
 # agent-plugins
 
-A monorepo of agent-agnostic skills, packaged as plugins that follow the open
-**[Agent Plugins](https://agent-plugins.org) v1.0.0** protocol, plus a thin Claude
-Code marketplace layer on top for the plugins that need one.
+This is where my AI agents live.
+
+It's a growing monorepo of specialized agents and the skills that back them,
+packaged as plugins that follow the open **[Agent Plugins](https://agent-plugins.org)
+v1.0.0** protocol — so they aren't locked into one vendor's assistant — plus a
+thin Claude Code marketplace layer on top for the plugins that need one.
+
+## What's in here right now
+
+The first resident is **`scpe`** ([Spec-Compiled Product Engineering](skills/scpe/references/SCPE_METHOD.md)),
+a product-engineering method where living Markdown is the contract and code is
+its consequence. It ships three specialized agents, each with full working
+knowledge of the method and a distinct, non-overlapping mandate:
+
+| Agent | Specialty | Owns |
+|---|---|---|
+| [`product-manager`](agents/product-manager.md) | Product Engineering | Vision, roadmap, feature discovery, epic `plan.md` (rules, examples, slices) |
+| [`software-architect`](agents/software-architect.md) | Software & Solution Architecture | `architecture.md`, `technical_deal.md`, app boundaries, ADRs |
+| [`senior-developer`](agents/senior-developer.md) | Senior Software Engineering | `tasks.md`, implementation and tests, slice by slice |
+
+More skills and agents will land here over time, each following the same shape.
 
 ## Why this shape
 
-Two open standards compose here instead of one bespoke format:
+Two open standards compose here instead of a bespoke format:
 
 - **[Agent Skills](https://agentskills.io)** — a folder with `SKILL.md` + `scripts/`
   + `references/` + `assets/`. The portable unit of capability. Read natively by
@@ -21,7 +39,8 @@ Two open standards compose here instead of one bespoke format:
 On top of both, this repo adds one convention of its own: the canonical,
 unpackaged skill source lives once at `skills/<name>/`; each `plugins/<name>/`
 folder is a self-contained, protocol-compliant *package* of that skill, built by
-`scripts/sync_plugin.py`.
+`scripts/sync_plugin.py`. That way nothing here is tied to a single client —
+today it's Claude Code, tomorrow it could be any Agent Plugins-compliant tool.
 
 ## Repo layout
 
