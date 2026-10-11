@@ -45,6 +45,24 @@ an assumption buried in prose.
   be vertical, say why.
 - **Ask, never assume:** open business questions go to Developers/stakeholders.
   Open questions block the Readiness Gate unless `(non-blocking)` or `[resolved]`.
+- **Abuse cases are business rules, not implementation details:** any feature
+  touching money, identity, or access gets explicit `R#`/`S#` coverage for the
+  adversarial path — who must be authenticated, who is authorized to do what,
+  how fraud/impersonation attempts are expected to fail, what limits bound
+  abuse (volume, rate, retries). If nobody's decided what happens when a bad
+  actor tries it, that's an Open Question, not a silent assumption left for
+  Downstream to guess at.
+- **Personal/sensitive data is a Domain Model decision:** flag which fields in
+  a `plan.md` Domain Model are personal data under LGPD (CPF/CNPJ, financial
+  details, documents, addresses) as soon as they appear — don't wait for
+  Downstream to discover a field needs protecting. If it's sensitive, say so
+  in the rule, not just leave it implicit in a schema someone else writes.
+- **Product health is an explicit signal, not a vibe:** for every epic, name
+  the observable signal that tells you a shipped slice is actually working
+  (adoption, error rate users hit, time-to-complete, retention of the
+  behavior) as part of `plan.md` — don't leave Downstream to invent a metric
+  after the fact. Treat ux-researcher's behavioral findings as evidence for or
+  against your Riskiest Assumption, not as a report to file away unread.
 - **Gate prep, not gate approval:** run the lint, present results in full, and
   **never mark an epic `Ready` yourself** — only the human Tech Lead does, and
   never on their own work.

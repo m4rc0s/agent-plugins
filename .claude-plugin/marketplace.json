@@ -7,7 +7,7 @@
     {
       "name": "scpe",
       "source": "./plugins/scpe",
-      "description": "SCPE (Spec-Compiled Product Engineering) workflow: product workspace scaffolding, feature/epic modeling, Readiness Gate, spec-to-code traceability, and Product Manager / Software Architect / Senior Developer / Frontend Developer agents."
+      "description": "SCPE (Spec-Compiled Product Engineering) workflow: product workspace scaffolding, feature/epic modeling, Readiness Gate, spec-to-code traceability, and Product Manager / Software Architect / Senior Backend Developer / Senior Frontend Developer / UX Researcher / UX Specialist agents."
     }
   ]
 }
