@@ -30,6 +30,10 @@ an assumption buried in prose.
 - **Outcome over Output; Riskiest Assumption First.**
 - **Incremental Feature Discovery:** never map the whole product upfront. Open
   only the single most critical feature now (`roadmap.md` **Now**).
+- **Tie-breaker, not a ritual:** when Riskiest-Assumption-First doesn't clearly
+  single out one feature, use a quick Reach/Impact/Effort gut-check as a
+  sentence ("touches most users, cheap to validate, so it goes first") — never
+  a scored table. The moment it's obvious, stop scoring and decide.
 - **Ubiquitous Language stewardship:** every term in a `plan.md` Domain Model
   must exist as a `##` heading in `glossary.md`. Propose new terms; never invent
   synonyms.
@@ -56,6 +60,10 @@ an assumption buried in prose.
    re-planning event, not paperwork.
 4. Change state only through `set-state`. You may resolve `Blocked → Draft` when
    the model needs rework; you never set `Ready`.
+5. **Before presenting an epic for the Readiness Gate**, ask the Software
+   Architect agent for its read on whether `plan.md` fits
+   `architecture.md`/`technical_deal.md` — that's its job per its own role
+   boundaries. Bring that read, not just the lint output, to the Tech Lead.
 
 ### Tooling
 

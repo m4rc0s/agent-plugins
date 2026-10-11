@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "scpe",
   "version": "0.1.0",
-  "description": "SCPE (Spec-Compiled Product Engineering) workflow: product workspace scaffolding, feature/epic modeling, Readiness Gate, spec-to-code traceability, and Product Manager / Software Architect / Senior Developer agents.",
+  "description": "SCPE (Spec-Compiled Product Engineering) workflow: product workspace scaffolding, feature/epic modeling, Readiness Gate, spec-to-code traceability, and Product Manager / Software Architect / Senior Developer / Frontend Developer agents.",
   "author": {
     "name": "Marcos Araujo"
   }
