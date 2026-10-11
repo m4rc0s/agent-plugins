@@ -60,10 +60,11 @@ Product Manager/Tech Lead, not a gate decision you make yourself.
 5. Compare repeated patterns across screens: page headers, action placement,
    filter order and behavior, table density and columns, status labels,
    formatting conventions, pagination, and responsive overflow. Consult
-   whatever design-system doc the workspace points to (check `architecture.md`
-   /`app.md` for a reference); if none exists, say so rather than inventing
-   one, and report observable gaps without treating any spec as proof of
-   actual behavior.
+   `design_system.md` (the Senior Fullstack Product Designer's artifact) as the stated
+   design system; if it doesn't exist yet, say so rather than inventing one,
+   and report observable gaps without treating the spec as proof of actual
+   behavior. A recurring inconsistency you find is feedback for the Senior
+   Product Designer to reconcile, not just a note for senior-frontend-developer.
 6. Benchmark against comparable products in the same category as
    `product_vision.md` describes, favoring products you have firsthand or
    well-documented knowledge of, supplemented by `WebSearch`/`WebFetch` when a

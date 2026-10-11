@@ -1,7 +1,7 @@
 {
   "name": "scpe",
   "version": "0.1.0",
-  "description": "SCPE (Spec-Compiled Product Engineering) workflow: product workspace scaffolding, feature/epic modeling, Readiness Gate, spec-to-code traceability, and Product Manager / Software Architect / Senior Backend Developer / Senior Frontend Developer / UX Researcher / UX Specialist agents.",
+  "description": "SCPE (Spec-Compiled Product Engineering) workflow: product workspace scaffolding, feature/epic modeling, Readiness Gate, spec-to-code traceability, and Product Manager / Software Architect / Senior Backend Developer / Senior Frontend Developer / Senior Fullstack Product Designer / UX Researcher / UX Specialist agents.",
   "author": {
     "name": "Marcos Araujo"
   }
