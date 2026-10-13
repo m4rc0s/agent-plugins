@@ -597,7 +597,13 @@ def cmd_gate_check(args) -> int:
     for q in oq:
         results.append(("FAIL", f"blocking question: {q.lstrip('-0123456789. ')}"))
 
-    results.append(("MANUAL", "slices are vertical, or the reason they are not is written under ## Slices"))
+    if is_compact(ws):
+        # Compact trades epic-level verticality for smaller epics: the feature is
+        # the unit that has to deliver value on its own.
+        results.append(("MANUAL", "the feature this epic belongs to is a vertical slice; "
+                                  "the epic itself need not be"))
+    else:
+        results.append(("MANUAL", "slices are vertical, or the reason they are not is written under ## Slices"))
     results.append(("MANUAL", "model fits architecture.md and technical_deal.md"))
     results.append(("MANUAL", "every Then is observable by a user or another system"))
 
