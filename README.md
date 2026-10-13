@@ -15,16 +15,20 @@ thin Claude Code marketplace layer on top for the plugins that need one.
 
 ## 🤖 What's in here right now
 
-The first resident is **`scpe`** ([Spec-Compiled Product Engineering](skills/scpe/references/SCPE_METHOD.md)),
+The first resident is **`scpe`** ([Spec-Compiled Product Engineering](plugins/scpe/skills/scpe/references/SCPE_METHOD.md)),
 a product-engineering method where living Markdown is the contract and code is
-its consequence. It ships three specialized agents, each with full working
+its consequence. It ships seven specialized agents, each with full working
 knowledge of the method and a distinct, non-overlapping mandate:
 
 | | Agent | Specialty | Owns |
 |---|---|---|---|
-| 📋 | [`product-manager`](agents/product-manager.md) | Product Engineering | Vision, roadmap, feature discovery, epic `plan.md` (rules, examples, slices) |
-| 🏛️ | [`software-architect`](agents/software-architect.md) | Software & Solution Architecture | `architecture.md`, `technical_deal.md`, app boundaries, ADRs |
-| 🛠️ | [`senior-developer`](agents/senior-developer.md) | Senior Software Engineering | `tasks.md`, implementation and tests, slice by slice |
+| 📋 | [`product-manager`](plugins/scpe/agents/product-manager.md) | Product Engineering | Vision, roadmap, feature discovery, epic `plan.md` (rules, examples, slices); marks Ready/Done |
+| 🏛️ | [`software-architect`](plugins/scpe/agents/software-architect.md) | Software & Solution Architecture | `architecture.md`, `technical_deal.md`, `app.md` boundaries, ADRs |
+| 🎨 | [`senior-fullstack-product-designer`](plugins/scpe/agents/senior-fullstack-product-designer.md) | Fullstack Product Design | `design_system.md`, design direction for UI-facing `R#`/`S#`; marks its own epics Ready/Done |
+| ⚙️ | [`senior-backend-developer`](plugins/scpe/agents/senior-backend-developer.md) | Senior Backend Engineering | `tasks.md`, business logic, persistence/migrations, service boundaries, slice by slice |
+| 🖥️ | [`senior-frontend-developer`](plugins/scpe/agents/senior-frontend-developer.md) | Senior Frontend Engineering | Components, client state, routing/data loading, accessibility, responsive behavior |
+| 🔬 | [`ux-researcher`](plugins/scpe/agents/ux-researcher.md) | User Behavior & Product Analytics | What to instrument to validate or falsify a plan's Riskiest Assumption; usage data as evidence |
+| 🔎 | [`ux-specialist`](plugins/scpe/agents/ux-specialist.md) | Browser-based UX/UI Audit | Visual hierarchy, navigation, filtering and consistency reviews of the running UI |
 
 More skills and agents will land here over time, each following the same shape.
 
@@ -44,11 +48,12 @@ Two open standards compose here instead of a bespoke format:
   Distribution and installation stay client-specific by design — the protocol
   only standardizes the portable parts.
 
-On top of both, this repo adds one convention of its own: the canonical,
-unpackaged skill source lives once at `skills/<name>/`; each `plugins/<name>/`
-folder is a self-contained, protocol-compliant *package* of that skill, built by
-`scripts/sync_plugin.py`. That way nothing here is tied to a single client —
-today it's Claude Code, tomorrow it could be any Agent Plugins-compliant tool. 🔓
+There is deliberately **no second, "canonical" copy** of a skill outside its
+plugin. A plugin directory is already self-contained and loadable by path, so
+`plugins/<name>/` is the single source of truth: no sync step, no drift. Only
+the client-specific component types that the protocol doesn't cover
+(`agents/`, `commands/`) live alongside the portable core, where their client
+expects them. 🔓
 
 ---
 
@@ -56,16 +61,13 @@ today it's Claude Code, tomorrow it could be any Agent Plugins-compliant tool. �
 
 ```text
 .
-├── skills/<name>/                   # canonical skill source: SKILL.md, scripts/, references/, templates/
-├── agents/<name>.md                 # canonical persona, agent-agnostic
-├── plugins/<name>/                  # self-contained, Agent Plugins-compliant package
-│   ├── plugin.json                  # Agent Plugins protocol manifest (portable, v1.0.0)
-│   ├── skills/<name>/               # Agent Plugins "skills/" fixed location — synced from ../../../skills/<name>
-│   ├── .claude-plugin/plugin.json   # Claude Code's own manifest (not part of the open protocol)
-│   ├── commands/*.md                # Claude Code-specific slash commands
-│   └── agents/<name>.md             # Claude Code-specific agent wrapper (hand-maintained, not synced)
-├── .claude-plugin/marketplace.json  # lets `/plugin marketplace add` install from this repo in Claude Code
-└── scripts/sync_plugin.py           # copies skills/<name> into plugins/<name>/skills/<name>
+├── plugins/<name>/                   # self-contained, Agent Plugins-compliant package — the single source of truth
+│   ├── plugin.json                   # Agent Plugins protocol manifest (portable, v1.0.0)
+│   ├── skills/<name>/                # Agent Plugins "skills/" fixed location: SKILL.md, scripts/, references/, templates/
+│   ├── .claude-plugin/plugin.json    # Claude Code's own manifest (not part of the open protocol)
+│   ├── commands/*.md                 # Claude Code-specific slash commands
+│   └── agents/<name>.md              # Claude Code-specific subagents (not a protocol component type)
+└── .claude-plugin/marketplace.json   # lets `/plugin marketplace add` install from this repo in Claude Code
 ```
 
 > 🤔 **Why two `plugin.json` files per plugin?** Agent Plugins v1.0.0 requires its
@@ -73,11 +75,16 @@ today it's Claude Code, tomorrow it could be any Agent Plugins-compliant tool. �
 > closed set of top-level fields). Claude Code's own plugin system is a
 > separate, earlier convention that requires its manifest at
 > `.claude-plugin/plugin.json` instead. Both coexist in the same folder without
-> conflict because they use different filenames. `commands/` and `agents/` are
-> Claude Code-specific component types — the Agent Plugins spec only defines
-> `skills/` and `mcp.json` as fixed locations in v1 and requires conformant
-> clients to ignore component types they don't implement, so these extra
-> folders are harmless to any other protocol client.
+> conflict because they use different filenames.
+
+> 🤔 **Why are `agents/` and `commands/` in there at all?** Agent Plugins v1.0.0
+> defines exactly two portable component types — `skills/` and `mcp.json`.
+> Subagents, slash commands and hooks are outside its scope, so there is no
+> standard-compliant way to ship a persona; the spec's own answer is that
+> clients extend the package (its example uses a reverse-domain namespace like
+> `com.example.client/`). Claude Code predates that convention and reads
+> `agents/` and `commands/` from the plugin root instead. A client that doesn't
+> implement them simply doesn't look there, so the portable core stays clean.
 
 ---
 
@@ -101,24 +108,26 @@ today it's Claude Code, tomorrow it could be any Agent Plugins-compliant tool. �
 
 ## 🧵 Using a skill directly (no packaging)
 
-Point any tool at `skills/<name>/` (or copy it into a product workspace's
-`.agents/skills/<name>/`, the path Antigravity and a growing set of agents read
-natively). No installation step required — it's plain Markdown, Python (standard
-library only), and templates. ✨
+Point any tool at `plugins/<name>/skills/<name>/` (or copy that folder into a
+product workspace's `.agents/skills/<name>/`, the path Antigravity and a growing
+set of agents read natively). No installation step required — it's plain
+Markdown, Python (standard library only), and templates. ✨
 
 ---
 
 ## 🔁 Adding or updating a skill
 
-1. Edit `skills/<name>/` directly — that's the single source of truth.
-2. If a plugin wraps it, run `python3 scripts/sync_plugin.py <name>` to refresh
-   `plugins/<name>/skills/<name>/` before testing or publishing.
-3. A plugin's `.claude-plugin/plugin.json`, `commands/*.md`, and Claude-specific
-   `agents/<name>.md` are hand-maintained, not synced.
-4. Keep the plugin's root `plugin.json` (Agent Plugins manifest) in sync by hand
-   too — `name`, `version`, `description` should mirror `.claude-plugin/plugin.json`.
+1. Edit `plugins/<name>/skills/<name>/` directly — that's the single source of
+   truth, and nothing needs to be copied anywhere afterwards.
+2. `agents/*.md` and `commands/*.md` are hand-maintained Claude Code components;
+   keep their mandates non-overlapping when you add one.
+3. Keep the plugin's root `plugin.json` (Agent Plugins manifest) in sync by hand
+   with `.claude-plugin/plugin.json` — `name`, `version`, `description` should
+   mirror each other — and mirror the description into
+   `.claude-plugin/marketplace.json` at the repo root.
 
 ---
 
-📖 See `skills/scpe/SKILL.md` and `skills/scpe/references/SCPE_METHOD.md` for
-the full SCPE method — the first skill/plugin in this repo.
+📖 See `plugins/scpe/skills/scpe/SKILL.md` and
+`plugins/scpe/skills/scpe/references/SCPE_METHOD.md` for the full SCPE method —
+the first skill/plugin in this repo.
