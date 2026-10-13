@@ -73,6 +73,13 @@ it, `validate --strict` looks for `<epic>#S#` tests under the path named by
 `- **source:** <path>` in `app.md` (relative to the workspace), falling back to
 the workspace's parent directory.
 
+**Slicing in compact workspaces.** The *feature* must be a vertical slice: on
+its own it delivers something a user can use. An *epic* need not be. This is the
+one deliberate trade against §4.2.1 of the method, and it buys smaller epics: an
+epic may be a shared capability that several epics of the same feature build on,
+as long as the feature around it still delivers value. Epics keep their
+`## Slices`, and an epic with no user-facing behaviour of its own says so there.
+
 ## 2. Wave pipeline
 
 | Wave | Who | You do |
