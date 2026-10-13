@@ -46,6 +46,33 @@ work, read `index.md`, `product_vision.md`, `glossary.md`, `architecture.md` and
 Formats are in `references/SCPE_METHOD.md` §5; the scaffolds in `templates/` follow them.
 Short fields always use `- **field:** value`.
 
+### Compact layout ("tiny SCPE")
+
+A smaller product may flatten the tree. The tooling detects this and adapts; no
+flag or config is involved.
+
+```text
+<product>/
+├── index.md  product_vision.md  roadmap.md  glossary.md  architecture.md
+├── technical_deal.md  team_playbook.md  quick_status.md  AGENTS.md  CLAUDE.md
+├── app.md                      # the manifest, at the root: no apps/ folder
+├── adr.md                      # one section per decision: no adr/ folder
+└── features/
+    ├── roadmap.md              # one roadmap for every feature
+    └── <feature>/              # index.md  quick_status.md  epics/
+```
+
+A workspace is compact when `app.md` exists at its root and there is no `apps/`
+folder. In that mode: `apps/` and `assets/` are not required, each feature needs
+only `index.md` and `quick_status.md` (no `feat_roadmap.md`), and
+`features/roadmap.md` is required instead. `scpe.py feature` scaffolds the
+smaller set automatically.
+
+Because compact workspaces usually sit beside the code rather than containing
+it, `validate --strict` looks for `<epic>#S#` tests under the path named by
+`- **source:** <path>` in `app.md` (relative to the workspace), falling back to
+the workspace's parent directory.
+
 ## 2. Wave pipeline
 
 | Wave | Who | You do |

@@ -43,7 +43,12 @@ ROOT_FILES = [
     "architecture.md", "technical_deal.md", "team_playbook.md", "quick_status.md",
 ]
 ROOT_DIRS = ["apps", "features", "assets"]
+# Compact layout ("tiny SCPE"): no apps/ or assets/ folders, one app.md at the
+# workspace root, and one features/roadmap.md instead of a feat_roadmap.md per
+# feature. Detected, never configured, so classic workspaces are unaffected.
+COMPACT_ROOT_DIRS = ["features"]
 FEATURE_FILES = ["index.md", "feat_roadmap.md", "quick_status.md"]
+COMPACT_FEATURE_FILES = ["index.md", "quick_status.md"]
 EPIC_FILES = ["index.md", "plan.md", "tasks.md", "quick_status.md", "epic_roadmap.md"]
 APP_FIELDS = [
     "name", "type", "description", "stack", "standards",
@@ -229,6 +234,38 @@ def resolve_epic(ws: Path, ref: str) -> Path:
     return path
 
 
+def is_compact(ws: Path) -> bool:
+    """True for the compact layout: a root app.md and no apps/ folder."""
+    return (ws / "app.md").is_file() and not (ws / "apps").is_dir()
+
+
+def app_manifests(ws: Path) -> list[Path]:
+    """Every app.md in the workspace, whichever layout it uses."""
+    if is_compact(ws):
+        return [ws / "app.md"]
+    apps_dir = ws / "apps"
+    if not apps_dir.is_dir():
+        return []
+    return [a / "app.md" for a in sorted(p for p in apps_dir.iterdir() if p.is_dir())]
+
+
+def source_roots(ws: Path) -> list[Path]:
+    """Where to look for code when checking <epic>#S# test names.
+
+    Classic keeps code under apps/. Compact keeps it outside the workspace, so
+    app.md may name it with `- **source:** <path>`; otherwise the workspace's
+    parent is scanned, minus the workspace itself.
+    """
+    if not is_compact(ws):
+        return [ws / "apps"]
+    declared = field(read(ws / "app.md"), "source")
+    if declared:
+        candidate = (ws / declared.strip().strip("`")).resolve()
+        if candidate.is_dir():
+            return [candidate]
+    return [ws.parent]
+
+
 def epic_line(epic_slug: str, state: str) -> str:
     return f"- [{epic_slug}](epics/{epic_slug}/index.md) — {state}"
 
@@ -341,7 +378,7 @@ def cmd_feature(args) -> int:
     if dest.exists():
         die(f"features/{args.slug} already exists. Aborting to avoid overwriting.")
     values = {"feature_slug": args.slug, "feature_title": args.title, "date": today()}
-    for name in FEATURE_FILES:
+    for name in (COMPACT_FEATURE_FILES if is_compact(ws) else FEATURE_FILES):
         write_new(dest / name, render(TEMPLATES_DIR / "feature" / name, values))
     (dest / "epics").mkdir(parents=True, exist_ok=True)
 
@@ -390,29 +427,32 @@ def cmd_validate(args) -> int:
             if name == "technical_deal.md" and (ws / "techinal_deal.md").is_file():
                 hint = " (found legacy techinal_deal.md — rename it: git mv techinal_deal.md technical_deal.md)"
             errors.append(f"missing product root file: {name}{hint}")
-    for d in ROOT_DIRS:
+    compact = is_compact(ws)
+    for d in (COMPACT_ROOT_DIRS if compact else ROOT_DIRS):
         if not (ws / d).is_dir():
             errors.append(f"missing product root folder: {d}/")
+    if compact and not (ws / "features" / "roadmap.md").is_file():
+        errors.append("compact layout: missing features/roadmap.md")
 
-    # apps
-    apps_dir = ws / "apps"
-    for app in sorted(p for p in apps_dir.iterdir() if p.is_dir()) if apps_dir.is_dir() else []:
-        text = read(app / "app.md")
+    # apps (apps/<name>/app.md in the classic layout, app.md at the root in compact)
+    for manifest in app_manifests(ws):
+        app = manifest.parent
+        text = read(manifest)
         if not text:
-            errors.append(f"{rel(app)}: missing app.md")
+            errors.append(f"{rel(manifest)}: missing app.md")
             continue
         for f in APP_FIELDS:
             if field(text, f) is None:
-                errors.append(f"{rel(app)}/app.md: missing field '{f}'")
+                errors.append(f"{rel(manifest)}: missing field '{f}'")
         if section(text, "Boundaries") is None:
-            errors.append(f"{rel(app)}/app.md: missing '## Boundaries'")
+            errors.append(f"{rel(manifest)}: missing '## Boundaries'")
         pointer = app / "repo_pointer.md"
         if pointer.is_file() and not field(read(pointer), "repository"):
             errors.append(f"{rel(pointer)}: missing value for 'repository'")
 
     # features and epics
     for feat in features(ws):
-        for name in FEATURE_FILES:
+        for name in (COMPACT_FEATURE_FILES if compact else FEATURE_FILES):
             if not (feat / name).is_file():
                 errors.append(f"{rel(feat)}: missing {name}")
         if not (feat / "epics").is_dir():
@@ -465,16 +505,24 @@ def cmd_validate(args) -> int:
                 if looks_stale(ws, ep):
                     errors.append(f"{where}: plan.md changed after the epic was Done — it should be Stale (§4.5)")
                 if args.strict:
+                    # Compiled and vendored artifacts must not satisfy the check:
+                    # a .pyc carrying a docstring is not a test.
+                    skip = {"target", "node_modules", "dist", ".git", "__pycache__",
+                            ".venv", "venv", "build", ".mypy_cache", ".pytest_cache",
+                            "htmlcov", ws.name}
                     corpus = "\n".join(
-                        read(p) for p in (ws / "apps").rglob("*")
-                        if p.is_file()
-                        and p.name not in {"app.md", "repo_pointer.md"}
-                        and not any(part in {"target", "node_modules", "dist", ".git"} for part in p.parts)
-                        and p.stat().st_size < 2_000_000
-                    ) if (ws / "apps").is_dir() else ""
+                        read(f)
+                        for root in source_roots(ws) if root.is_dir()
+                        for f in root.rglob("*")
+                        if f.is_file()
+                        and f.name not in {"app.md", "repo_pointer.md"}
+                        and not any(part in skip for part in f.relative_to(root).parts)
+                        and f.stat().st_size < 2_000_000
+                    )
                     for s in examples:
                         if f"{ep.name}#{s}" not in corpus:
-                            errors.append(f"{where}: no test named '{ep.name}#{s}' found under apps/")
+                            where_src = ", ".join(str(r) for r in source_roots(ws))
+                            errors.append(f"{where}: no test named '{ep.name}#{s}' found under {where_src}")
             if state == "Blocked":
                 blockers = strip_comments(section(read(ep / "quick_status.md"), "Blockers") or "").strip()
                 if not blockers or blockers.lower().startswith("none"):
