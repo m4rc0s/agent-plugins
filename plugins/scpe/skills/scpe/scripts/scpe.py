@@ -851,13 +851,16 @@ def cmd_mark_stale(args) -> int:
         return 0
     try:
         plan = Path(path_str).expanduser().resolve()
-        if plan.name != "plan.md" or plan.parent.parent.name != "epics":
+        if plan.name != "plan.md":
             return 0
         epic_dir = plan.parent
+        # Support both flat (features/<feature>/plan.md) and nested (features/<feat>/epics/<epic>/plan.md)
+        if epic_dir.parent.name not in {"epics", "features"}:
+            return 0
         ws = find_workspace(epic_dir)
         if ws is None:
             return 0
-        state, count = epic_state(read(epic_dir / "quick_status.md"))
+        state, count = get_epic_state(epic_dir)
         if count != 1 or state != "Done":
             return 0
         write_state(epic_dir, "Stale", "scpe hook",
@@ -867,10 +870,12 @@ def cmd_mark_stale(args) -> int:
             die(str(exc))
         return 0
 
-    ref = f"{epic_dir.parent.parent.name}/{epic_dir.name}"
-    msg = (f"SCPE: epic {ref} was Done and its plan.md changed, so it is now Stale. "
-           "The Tech Lead must review the difference and record Re-execute or Accept the drift "
-           "in epic_roadmap.md (run /scpe-gate).")
+    if epic_dir.parent.name == "features":
+        ref = epic_dir.name
+    else:
+        ref = f"{epic_dir.parent.parent.name}/{epic_dir.name}"
+    msg = (f"SCPE: {ref} was Done and its plan.md changed, so it is now Stale. "
+           "The Tech Lead must review the difference and record Re-execute or Accept the drift.")
     if args.from_hook:
         print(json.dumps({
             "systemMessage": msg,
@@ -912,16 +917,30 @@ def collect_status(ws: Path) -> list[dict]:
     return rows
 
 
-def status_table(rows: list[dict]) -> str:
+def status_table(rows: list[dict], ws: Path | None = None) -> str:
     if not rows:
         return "_No epics yet._"
     lines = ["| Feature | Epic | State | Tasks |", "| :--- | :--- | :---: | :---: |"]
     for r in rows:
         tasks = f"{r['tasks_done']}/{r['tasks_total']}" if r["tasks_total"] else "—"
         rel_epic = r.get("rel_path", f"features/{r['feature']}/epics/{r['epic']}")
+        feat_path = ws / "features" / r['feature'] if ws else None
+        if feat_path and (feat_path / "index.md").is_file():
+            feat_link = f"features/{r['feature']}/index.md"
+        else:
+            feat_link = f"features/{r['feature']}/plan.md"
+
+        epic_path = ws / rel_epic if ws else None
+        if epic_path and (epic_path / "quick_status.md").is_file():
+            epic_link = f"{rel_epic}/quick_status.md"
+        elif epic_path and (epic_path / "tasks.toml").is_file():
+            epic_link = f"{rel_epic}/tasks.toml"
+        else:
+            epic_link = f"{rel_epic}/plan.md"
+
         lines.append(
-            f"| [{r['feature']}](features/{r['feature']}/index.md) "
-            f"| [{r['epic']}]({rel_epic}/quick_status.md) "
+            f"| [{r['feature']}]({feat_link}) "
+            f"| [{r['epic']}]({epic_link}) "
             f"| `{r['state']}` | {tasks} |"
         )
     counts = {s: sum(1 for r in rows if r["state"] == s) for s in STATES}
@@ -1166,13 +1185,13 @@ def cmd_status(args) -> int:
     if args.json:
         print(json.dumps(rows, indent=2, ensure_ascii=False))
     else:
-        print(status_table(rows))
+        print(status_table(rows, ws=ws))
     if args.write:
         sync_roadmap_file(ws)
         qs = ws / "quick_status.md"
         if qs.is_file():
             text = read(qs)
-            block = f"{STATUS_START}\n{status_table(rows)}\n{STATUS_END}"
+            block = f"{STATUS_START}\n{status_table(rows, ws=ws)}\n{STATUS_END}"
             if STATUS_START in text and STATUS_END in text:
                 text = re.sub(re.escape(STATUS_START) + r".*?" + re.escape(STATUS_END),
                               lambda _: block, text, flags=re.DOTALL)

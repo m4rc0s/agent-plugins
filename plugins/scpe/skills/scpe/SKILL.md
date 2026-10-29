@@ -132,7 +132,7 @@ Found a gap in the plan while building? Stop and ask. Do not silently change `pl
 | Action | Command |
 |---|---|
 | New product workspace | `python3 "$S" init <name> [--path DIR] [--app NAME:TYPE]... [--no-git]` |
-| New feature (auto 00X) | `python3 "$S" feature "<Title>" [--branch]` |
+| New feature (auto 00X) | `python3 "$S" feature <slug> "<Title>" [--branch]` |
 | Compile slice context (JIT) | `python3 "$S" pack <feature> <slice_id> [--json]` |
 | Glossary term lookup | `python3 "$S" term <word>` |
 | Sync product roadmap | `python3 "$S" roadmap [--sync]` |
@@ -140,7 +140,6 @@ Found a gap in the plan while building? Stop and ask. Do not silently change `pl
 | Readiness Gate lint | `python3 "$S" gate-check <feature>` |
 | Change state | `python3 "$S" set-state <feature> <State> --by "<who>" [--note "..."]` |
 | Validate workspace | `python3 "$S" validate [--strict]` |
-| Status panel | `python3 "$S" status [--json] [--write]` |
 | Status panel | `python3 "$S" status [--json] [--write]` |
 
 Scaffolds never overwrite: they abort if the target exists. `validate --strict` also requires a
