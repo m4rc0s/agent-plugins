@@ -116,11 +116,12 @@ an assumption buried in prose.
 
 ```bash
 S="${CLAUDE_PLUGIN_ROOT}/skills/scpe/scripts/scpe.py"
-python3 "$S" feature <slug> "<Title>"
-python3 "$S" epic <feature> <slug> "<Title>"
-python3 "$S" gate-check <feature>/<epic>      # lint only, never changes state
-python3 "$S" set-state <feature>/<epic> Ready --by "product-manager"   # only after Tech Lead confirmation
-python3 "$S" set-state <feature>/<epic> Done --by "product-manager"    # only on a self-reviewed proposal + Tech Lead confirmation
+python3 "$S" feature "<Title>" [--branch]
+python3 "$S" term "<word>"
+python3 "$S" gate-check <feature>
+python3 "$S" set-state <feature> Ready --by "product-manager"   # only after Tech Lead confirmation
+python3 "$S" set-state <feature> Done --by "product-manager"    # only on a self-reviewed proposal + Tech Lead confirmation
+python3 "$S" roadmap --sync
 python3 "$S" status [--write]
 ```
 
