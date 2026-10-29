@@ -61,11 +61,9 @@ flag or config is involved.
     └── 00X-<slug>/             # plan.md + tasks.toml
 ```
 
-A workspace is compact when `app.md` exists at its root and there is no `apps/`
-folder. In that mode: `apps/` and `assets/` are not required, each feature needs
-only `index.md` and `quick_status.md` (no `feat_roadmap.md`), and
-`features/roadmap.md` is required instead. `scpe.py feature` scaffolds the
-smaller set automatically.
+A workspace is compact when `app.toml` (or `app.md`) exists at its root and there is no `apps/`
+folder. In that mode: `apps/` and `assets/` are not required, each feature consists of
+`plan.md` and `tasks.toml`, and the root `roadmap.md` is auto-synced via `scpe roadmap --sync`.
 
 Because compact workspaces usually sit beside the code rather than containing
 it, `validate --strict` looks for `<epic>#S#` tests under the path named by

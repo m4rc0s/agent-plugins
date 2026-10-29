@@ -26,7 +26,7 @@
 - [ ] Build slice by slice; each slice runs and is demoable before the next starts.
 - [ ] Code only in `apps/<app>/`, inside the boundaries of its `app.md`, following `technical_deal.md`.
 - [ ] One test per example at least, named `<epic>#S#`.
-- [ ] Log learnings and non-plan surprises in `quick_status.md`.
+- [ ] Log learnings and non-plan surprises in `tasks.toml` (`[[log]]`).
 - [ ] Blocked by a dependency or a defect → set `Blocked` and fill `## Blockers`.
 - [ ] All tasks checked, tests green, Developer review done → set `Done`.
 
