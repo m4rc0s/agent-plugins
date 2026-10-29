@@ -1,5 +1,5 @@
 ---
-description: Show the product-wide panel of every epic, its state, and task progress
+description: Show the product-wide panel of every feature, its state, and task progress
 argument-hint: "[--write]"
 ---
 
@@ -9,5 +9,4 @@ Run:
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/scpe/scripts/scpe.py" status $ARGUMENTS
 ```
 
-Show the panel to the user. With `--write`, it also refreshes the `<!-- scpe:status:start
--->` block in the root `quick_status.md` — confirm that happened.
+Show the panel to the user. With `--write`, it synchronizes the root `roadmap.md` — confirm that happened.

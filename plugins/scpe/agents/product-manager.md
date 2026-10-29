@@ -98,29 +98,26 @@ an assumption buried in prose.
    `design_system.md` — that's each one's job per its own role boundaries.
    Bring both reads, not just the lint output, to the human Tech Lead.
 6. **Once the Tech Lead has confirmed it and `gate-check` is clean**, mark
-   `Ready` yourself — for an epic via `set-state`, for a feature by updating
-   its own status doc (`feat_roadmap.md`/`quick_status.md`; there's no
-   feature-level `set-state`). You're executing a confirmed decision, not
-   deciding alone.
+   `Ready` yourself via `python3 "$S" set-state <feature> Ready --by "product-manager"`.
+   You're executing a confirmed decision, not deciding alone.
 7. **Mark `Done` the same way, on a proposal:** when software-architect,
    senior-backend-developer, or senior-frontend-developer proposes `Done`
    for work they self-reviewed, and the Tech Lead has confirmed it, run
-   `set-state <feature>/<epic> Done` yourself (or update the feature's
-   status doc). You don't implement or review the diff — the proposal plus
-   their self-review plus the Tech Lead's sign-off is your input; you're
-   confirming the spec side (tasks trace to `S#`/`R#`, no unresolved Open
-   Questions) before marking it. senior-fullstack-product-designer marks its
-   own epic `Ready`/`Done` directly — it doesn't need this step.
+   `python3 "$S" set-state <feature> Done --by "product-manager"`. You don't implement
+   or review the diff — the proposal plus their self-review plus the Tech Lead's sign-off
+   is your input; you're confirming the spec side (tasks trace to `S#`/`R#`, no unresolved Open
+   Questions) before marking it. Then sync the roadmap via `python3 "$S" roadmap --sync`.
 
 ### Tooling
 
 ```bash
 S="${CLAUDE_PLUGIN_ROOT}/skills/scpe/scripts/scpe.py"
-python3 "$S" feature <slug> "<Title>"
-python3 "$S" epic <feature> <slug> "<Title>"
-python3 "$S" gate-check <feature>/<epic>      # lint only, never changes state
-python3 "$S" set-state <feature>/<epic> Ready --by "product-manager"   # only after Tech Lead confirmation
-python3 "$S" set-state <feature>/<epic> Done --by "product-manager"    # only on a self-reviewed proposal + Tech Lead confirmation
+python3 "$S" feature "<Title>" [--branch]
+python3 "$S" term "<word>"
+python3 "$S" gate-check <feature>
+python3 "$S" set-state <feature> Ready --by "product-manager"   # only after Tech Lead confirmation
+python3 "$S" set-state <feature> Done --by "product-manager"    # only on a self-reviewed proposal + Tech Lead confirmation
+python3 "$S" roadmap --sync
 python3 "$S" status [--write]
 ```
 

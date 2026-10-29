@@ -22,11 +22,11 @@ knowledge of the method and a distinct, non-overlapping mandate:
 
 | | Agent | Specialty | Owns |
 |---|---|---|---|
-| 📋 | [`product-manager`](plugins/scpe/agents/product-manager.md) | Product Engineering | Vision, roadmap, feature discovery, epic `plan.md` (rules, examples, slices); marks Ready/Done |
-| 🏛️ | [`software-architect`](plugins/scpe/agents/software-architect.md) | Software & Solution Architecture | `architecture.md`, `technical_deal.md`, `app.md` boundaries, ADRs |
-| 🎨 | [`senior-fullstack-product-designer`](plugins/scpe/agents/senior-fullstack-product-designer.md) | Fullstack Product Design | `design_system.md`, design direction for UI-facing `R#`/`S#`; marks its own epics Ready/Done |
-| ⚙️ | [`senior-backend-developer`](plugins/scpe/agents/senior-backend-developer.md) | Senior Backend Engineering | `tasks.md`, business logic, persistence/migrations, service boundaries, slice by slice |
-| 🖥️ | [`senior-frontend-developer`](plugins/scpe/agents/senior-frontend-developer.md) | Senior Frontend Engineering | Components, client state, routing/data loading, accessibility, responsive behavior |
+| 📋 | [`product-manager`](plugins/scpe/agents/product-manager.md) | Product Engineering | Vision, roadmap, feature discovery, `plan.md` (rules, examples, slices); marks Ready/Done |
+| 🏛️ | [`software-architect`](plugins/scpe/agents/software-architect.md) | Software & Solution Architecture | `architecture.md`, `technical_deal.md`, `app.toml` boundaries, ADRs |
+| 🎨 | [`senior-fullstack-product-designer`](plugins/scpe/agents/senior-fullstack-product-designer.md) | Fullstack Product Design | `design_system.md`, design direction for UI-facing `R#`/`S#`; marks its own features Ready/Done |
+| ⚙️ | [`senior-backend-developer`](plugins/scpe/agents/senior-backend-developer.md) | Senior Backend Engineering | `tasks.toml`, `scpe pack` execution, business logic, persistence/migrations, service boundaries |
+| 🖥️ | [`senior-frontend-developer`](plugins/scpe/agents/senior-frontend-developer.md) | Senior Frontend Engineering | `tasks.toml`, `scpe pack` execution, components, client state, routing/data loading, accessibility |
 | 🔬 | [`ux-researcher`](plugins/scpe/agents/ux-researcher.md) | User Behavior & Product Analytics | What to instrument to validate or falsify a plan's Riskiest Assumption; usage data as evidence |
 | 🔎 | [`ux-specialist`](plugins/scpe/agents/ux-specialist.md) | Browser-based UX/UI Audit | Visual hierarchy, navigation, filtering and consistency reviews of the running UI |
 

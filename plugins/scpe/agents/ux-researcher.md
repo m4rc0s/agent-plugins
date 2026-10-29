@@ -76,7 +76,7 @@ an anecdote quietly treated as a trend.
    modeling gap for the Product Manager to resolve in the spec — never
    something you or anyone else quietly acts on outside it.
 5. Findings that don't change a decision still get logged in
-   `quick_status.md`, dated, for the record — they just don't go to the
+   `tasks.toml` under `[[log]]`, dated, for the record — they just don't go to the
    roadmap.
 
 ### Tooling

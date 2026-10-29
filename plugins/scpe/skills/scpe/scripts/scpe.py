@@ -27,6 +27,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 for _stream in (sys.stdout, sys.stderr):
@@ -39,11 +40,15 @@ SKILL_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = SKILL_DIR / "templates"
 
 ROOT_FILES = [
-    "index.md", "product_vision.md", "roadmap.md", "glossary.md",
-    "architecture.md", "technical_deal.md", "team_playbook.md", "quick_status.md",
+    "roadmap.md", "glossary.md", "architecture.md", "agents.toml",
 ]
 ROOT_DIRS = ["apps", "features", "assets"]
+# Compact layout ("tiny SCPE"): no apps/ or assets/ folders, one app.md at the
+# workspace root, and one features/roadmap.md instead of a feat_roadmap.md per
+# feature. Detected, never configured, so classic workspaces are unaffected.
+COMPACT_ROOT_DIRS = ["features"]
 FEATURE_FILES = ["index.md", "feat_roadmap.md", "quick_status.md"]
+COMPACT_FEATURE_FILES = ["index.md", "quick_status.md"]
 EPIC_FILES = ["index.md", "plan.md", "tasks.md", "quick_status.md", "epic_roadmap.md"]
 APP_FIELDS = [
     "name", "type", "description", "stack", "standards",
@@ -200,6 +205,70 @@ def tasks_of(tasks_text: str) -> list[tuple[bool, str]]:
     ]
 
 
+def get_epic_state(epic_dir: Path) -> tuple[str | None, int]:
+    """Return (state, count). Checks tasks.toml first, then quick_status.md."""
+    tasks_toml = epic_dir / "tasks.toml"
+    if tasks_toml.is_file():
+        try:
+            with open(tasks_toml, "rb") as f:
+                data = tomllib.load(f)
+            st = data.get("state", {}).get("current")
+            if st in STATES:
+                return st, 1
+        except Exception:
+            pass
+    qs_path = epic_dir / "quick_status.md"
+    if qs_path.is_file():
+        return epic_state(read(qs_path))
+    return None, 0
+
+
+def get_epic_tasks(epic_dir: Path) -> list[tuple[bool, str]]:
+    """Return [(done, desc), ...]. Checks tasks.toml first, then tasks.md."""
+    tasks_toml = epic_dir / "tasks.toml"
+    if tasks_toml.is_file():
+        try:
+            with open(tasks_toml, "rb") as f:
+                data = tomllib.load(f)
+            res = []
+            for t in data.get("task", []):
+                done = bool(t.get("done") or str(t.get("status", "")).lower() == "done")
+                title = t.get("title", "")
+                covers = ", ".join(t.get("covers", []))
+                cov_str = f" ({covers})" if covers else ""
+                desc = f"{t.get('id', '')} — {title}{cov_str}".strip()
+                res.append((done, desc))
+            if res:
+                return res
+        except Exception:
+            pass
+    tasks_md = epic_dir / "tasks.md"
+    if tasks_md.is_file():
+        return tasks_of(read(tasks_md))
+    return []
+
+
+def is_flat_feature(p: Path) -> bool:
+    """True if directory is a flat feature (has plan.md or tasks.toml directly)."""
+    return p.is_dir() and ((p / "plan.md").is_file() or (p / "tasks.toml").is_file())
+
+
+def next_feature_prefix(ws: Path) -> str:
+    """Scan features/ for NNN- prefix and return the next formatted 3-digit string."""
+    fdir = ws / "features"
+    if not fdir.is_dir():
+        return "001"
+    nums = []
+    for p in fdir.iterdir():
+        if p.is_dir():
+            m = re.match(r"^(\d{3})-", p.name)
+            if m:
+                nums.append(int(m.group(1)))
+    next_num = max(nums) + 1 if nums else 1
+    return f"{next_num:03d}"
+
+
+
 # ------------------------------------------------------------ workspace -----
 
 def features(ws: Path) -> list[Path]:
@@ -208,25 +277,78 @@ def features(ws: Path) -> list[Path]:
 
 
 def epics(feature_dir: Path) -> list[Path]:
+    if is_flat_feature(feature_dir):
+        return [feature_dir]
     edir = feature_dir / "epics"
     if edir.is_dir():
         return sorted(p for p in edir.iterdir() if p.is_dir())
     return sorted(
         p for p in feature_dir.iterdir()
-        if p.is_dir() and (p.name.startswith("epic") or (p / "quick_status.md").is_file() or (p / "plan.md").is_file())
+        if p.is_dir() and (p.name.startswith("epic") or (p / "quick_status.md").is_file() or (p / "plan.md").is_file() or (p / "tasks.toml").is_file())
     )
 
 
 def resolve_epic(ws: Path, ref: str) -> Path:
-    parts = ref.strip("/").split("/")
-    if len(parts) != 2:
-        die(f"epic reference must be <feature>/<epic>, got '{ref}'.")
-    path = ws / "features" / parts[0] / "epics" / parts[1]
-    if not path.is_dir():
-        path = ws / "features" / parts[0] / parts[1]
-    if not path.is_dir():
-        die(f"epic not found: features/{parts[0]}/{parts[1]} (or under epics/)")
-    return path
+    ref_clean = ref.strip("/")
+    parts = ref_clean.split("/")
+    if len(parts) == 1:
+        # Check flat feature: features/<ref>
+        p = ws / "features" / parts[0]
+        if is_flat_feature(p):
+            return p
+        # Check matching prefix or substring (e.g. '001' or 'pix' matching '001-pix-checkout')
+        for feat in features(ws):
+            if is_flat_feature(feat):
+                if feat.name == parts[0] or feat.name.startswith(f"{parts[0]}-") or feat.name.endswith(f"-{parts[0]}") or parts[0] in feat.name:
+                    return feat
+        die(f"feature/epic '{ref}' not found in features/.")
+    elif len(parts) == 2:
+        path = ws / "features" / parts[0] / "epics" / parts[1]
+        if not path.is_dir():
+            path = ws / "features" / parts[0] / parts[1]
+        if not path.is_dir():
+            die(f"epic not found: features/{parts[0]}/{parts[1]} (or under epics/)")
+        return path
+    else:
+        die(f"invalid reference '{ref}'. Expected <feature> or <feature>/<epic>.")
+
+
+def is_compact(ws: Path) -> bool:
+    """True for the compact layout: a root app.md and no apps/ folder."""
+    return (ws / "app.md").is_file() and not (ws / "apps").is_dir()
+
+
+def app_manifests(ws: Path) -> list[Path]:
+    """Every app.toml or app.md in the workspace, whichever layout it uses."""
+    if is_compact(ws):
+        return [ws / "app.toml"] if (ws / "app.toml").is_file() else [ws / "app.md"]
+    apps_dir = ws / "apps"
+    if not apps_dir.is_dir():
+        return []
+    res = []
+    for a in sorted(p for p in apps_dir.iterdir() if p.is_dir()):
+        if (a / "app.toml").is_file():
+            res.append(a / "app.toml")
+        elif (a / "app.md").is_file():
+            res.append(a / "app.md")
+    return res
+
+
+def source_roots(ws: Path) -> list[Path]:
+    """Where to look for code when checking <epic>#S# test names.
+
+    Classic keeps code under apps/. Compact keeps it outside the workspace, so
+    app.md may name it with `- **source:** <path>`; otherwise the workspace's
+    parent is scanned, minus the workspace itself.
+    """
+    if not is_compact(ws):
+        return [ws / "apps"]
+    declared = field(read(ws / "app.md"), "source")
+    if declared:
+        candidate = (ws / declared.strip().strip("`")).resolve()
+        if candidate.is_dir():
+            return [candidate]
+    return [ws.parent]
 
 
 def epic_line(epic_slug: str, state: str) -> str:
@@ -234,20 +356,38 @@ def epic_line(epic_slug: str, state: str) -> str:
 
 
 def write_state(epic_dir: Path, new: str, who: str, note: str) -> str:
-    qs_path = epic_dir / "quick_status.md"
-    text = read(qs_path)
-    old, count = epic_state(text)
-    if count == 0:
-        die(f"{qs_path}: expected state line, found none.")
-    if re.search(r"^- \*\*state:\*\*", text, re.MULTILINE):
-        text = re.sub(r"^(- \*\*state:\*\*)[ \t]*\S*", rf"\g<1> {new}", text, count=1, flags=re.MULTILINE)
+    tasks_toml = epic_dir / "tasks.toml"
+    old, _ = get_epic_state(epic_dir)
+    if tasks_toml.is_file():
+        text = read(tasks_toml)
+        if re.search(r'^\s*current\s*=', text, re.MULTILINE):
+            text = re.sub(r'^(current\s*=\s*)["\'].*?["\']', rf'\g<1>"{new}"', text, count=1, flags=re.MULTILINE)
+        if re.search(r'^\s*updated_at\s*=', text, re.MULTILINE):
+            text = re.sub(r'^(updated_at\s*=\s*)["\'].*?["\']', rf'\g<1>"{today()}"', text, count=1, flags=re.MULTILINE)
+        if re.search(r'^\s*updated_by\s*=', text, re.MULTILINE):
+            text = re.sub(r'^(updated_by\s*=\s*)["\'].*?["\']', rf'\g<1>"{who}"', text, count=1, flags=re.MULTILINE)
+        
+        note_text = f" {note.strip()}" if note.strip() else ""
+        entry_msg = f"{old or '?'} → {new}.{note_text}".strip()
+        log_entry = f'\n[[log]]\ndate = "{today()}"\nauthor = "{who}"\nentry = "{entry_msg}"\n'
+        text = text.rstrip() + "\n" + log_entry
+        tasks_toml.write_text(text, encoding="utf-8")
     else:
-        text = f"- **state:** {new}\n\n" + text.strip() + "\n"
-    entry = f"- {today()} — {old} → {new} by {who}." + (f" {note.strip()}" if note.strip() else "")
-    text = append_to_section(text, "Log", entry)
-    qs_path.write_text(text, encoding="utf-8")
+        qs_path = epic_dir / "quick_status.md"
+        if qs_path.is_file():
+            text = read(qs_path)
+            old, count = epic_state(text)
+            if count == 0:
+                die(f"{qs_path}: expected state line, found none.")
+            if re.search(r"^- \*\*state:\*\*", text, re.MULTILINE):
+                text = re.sub(r"^(- \*\*state:\*\*)[ \t]*\S*", rf"\g<1> {new}", text, count=1, flags=re.MULTILINE)
+            else:
+                text = f"- **state:** {new}\n\n" + text.strip() + "\n"
+            entry = f"- {today()} — {old} → {new} by {who}." + (f" {note.strip()}" if note.strip() else "")
+            text = append_to_section(text, "Log", entry)
+            qs_path.write_text(text, encoding="utf-8")
 
-    # keep the feature index epic list in sync
+    # keep the feature index epic list in sync (for legacy nested layout)
     feat_dir = epic_dir.parent.parent if epic_dir.parent.name == "epics" else epic_dir.parent
     feat_index = feat_dir / "index.md"
     if feat_index.is_file():
@@ -257,6 +397,11 @@ def write_state(epic_dir: Path, new: str, who: str, note: str) -> str:
         if re.search(pattern, ftext, re.MULTILINE):
             ftext = re.sub(pattern, epic_line(slug, new), ftext, count=1, flags=re.MULTILINE)
             feat_index.write_text(ftext, encoding="utf-8")
+
+    ws = workspace()
+    if (ws / "roadmap.md").is_file():
+        sync_roadmap_file(ws)
+
     return old or "?"
 
 
@@ -269,22 +414,28 @@ def git(ws: Path, *args: str) -> str | None:
 
 
 def looks_stale(ws: Path, epic_dir: Path) -> bool:
-    """A Done epic whose plan.md changed after its quick_status.md (git-based)."""
+    """A Done epic whose plan.md changed after its tasks.toml / quick_status.md (git-based)."""
     if git(ws, "rev-parse", "--is-inside-work-tree") is None:
         return False
-    plan, qs = epic_dir / "plan.md", epic_dir / "quick_status.md"
+    plan = epic_dir / "plan.md"
+    state_file = epic_dir / "tasks.toml"
+    if not state_file.is_file():
+        state_file = epic_dir / "quick_status.md"
+    if not state_file.is_file():
+        return False
+
     plan_dirty = bool((git(ws, "status", "--porcelain", "--", str(plan)) or "").strip())
-    qs_dirty = bool((git(ws, "status", "--porcelain", "--", str(qs)) or "").strip())
-    if plan_dirty and not qs_dirty:
+    state_dirty = bool((git(ws, "status", "--porcelain", "--", str(state_file)) or "").strip())
+    if plan_dirty and not state_dirty:
         return True
-    if plan_dirty or qs_dirty:
+    if plan_dirty or state_dirty:
         return False
     try:
         plan_ts = int((git(ws, "log", "-1", "--format=%ct", "--", str(plan)) or "0").strip() or 0)
-        qs_ts = int((git(ws, "log", "-1", "--format=%ct", "--", str(qs)) or "0").strip() or 0)
+        state_ts = int((git(ws, "log", "-1", "--format=%ct", "--", str(state_file)) or "0").strip() or 0)
     except ValueError:
         return False
-    return plan_ts > qs_ts
+    return plan_ts > state_ts
 
 
 # ------------------------------------------------------------ subcommands ---
@@ -305,7 +456,8 @@ def cmd_init(args) -> int:
     apps_list = "\n".join(f"- [{n}](apps/{n}/app.md) — {k}" for n, k in apps) or "_No apps yet._"
     values = {"product_name": args.name, "date": today(), "apps_list": apps_list}
 
-    for name in ROOT_FILES + ["CLAUDE.md", "AGENTS.md"]:
+    optional_root = ["product_vision.md", "CLAUDE.md", "AGENTS.md"]
+    for name in ROOT_FILES + [f for f in optional_root if (TEMPLATES_DIR / "product" / f).is_file()]:
         write_new(dest / name, render(TEMPLATES_DIR / "product" / name, values))
     for d in ROOT_DIRS:
         (dest / d).mkdir(parents=True, exist_ok=True)
@@ -314,10 +466,19 @@ def cmd_init(args) -> int:
     if not apps:
         (dest / "apps" / ".gitkeep").touch()
     for name, kind in apps:
-        write_new(
-            dest / "apps" / name / "app.md",
-            render(TEMPLATES_DIR / "app" / "app.md", {**values, "app_name": name, "app_type": kind}),
-        )
+        app_dest_dir = dest / "apps" / name
+        app_dest_dir.mkdir(parents=True, exist_ok=True)
+        app_toml_tmpl = TEMPLATES_DIR / "app" / "app.toml"
+        if app_toml_tmpl.is_file():
+            write_new(
+                app_dest_dir / "app.toml",
+                render(app_toml_tmpl, {**values, "app_name": name, "app_type": kind}),
+            )
+        else:
+            write_new(
+                app_dest_dir / "app.md",
+                render(TEMPLATES_DIR / "app" / "app.md", {**values, "app_name": name, "app_type": kind}),
+            )
 
     git_msg = "git: skipped (--no-git)"
     if not args.no_git:
@@ -329,26 +490,57 @@ def cmd_init(args) -> int:
 
     print(f"✅ SCPE workspace created at {dest}")
     print(f"   {git_msg}")
-    print("   Next: Upstream — fill product_vision.md, glossary.md and technical_deal.md,")
+    print("   Next: Upstream — fill product_vision.md, glossary.md and architecture.md,")
     print("   then open the most critical feature with `scpe.py feature <slug> \"<Title>\"`.")
     return 0
 
 
 def cmd_feature(args) -> int:
     ws = workspace()
-    check_slug(args.slug, "feature")
-    dest = ws / "features" / args.slug
+    raw_slug = args.slug.strip()
+    if re.match(r"^\d{3}-", raw_slug):
+        slug = raw_slug
+    else:
+        prefix = next_feature_prefix(ws)
+        slug = f"{prefix}-{raw_slug}"
+    check_slug(slug, "feature")
+
+    dest = ws / "features" / slug
     if dest.exists():
-        die(f"features/{args.slug} already exists. Aborting to avoid overwriting.")
-    values = {"feature_slug": args.slug, "feature_title": args.title, "date": today()}
-    for name in FEATURE_FILES:
-        write_new(dest / name, render(TEMPLATES_DIR / "feature" / name, values))
-    (dest / "epics").mkdir(parents=True, exist_ok=True)
+        die(f"features/{slug} already exists. Aborting to avoid overwriting.")
+
+    dest.mkdir(parents=True, exist_ok=True)
+
+    if getattr(args, "branch", False):
+        branch_name = f"feat/{slug}"
+        print(f"🌿 Creating and checking out branch '{branch_name}'...")
+        git(ws, "checkout", "-b", branch_name)
+
+    values = {
+        "feature_slug": slug, "feature_title": args.title,
+        "epic_slug": slug, "epic_title": args.title,
+        "date": today(), "today": today()
+    }
+
+    # Write plan.md and tasks.toml in features/<slug>/
+    plan_template = TEMPLATES_DIR / "epic" / "plan.md"
+    tasks_template = TEMPLATES_DIR / "feature" / "tasks.toml"
+    if not tasks_template.is_file():
+        tasks_template = TEMPLATES_DIR / "epic" / "tasks.toml"
+
+    write_new(dest / "plan.md", render(plan_template, values))
+    if tasks_template.is_file():
+        write_new(dest / "tasks.toml", render(tasks_template, values))
 
     index = ws / "index.md"
-    line = f"- [{args.title}](features/{args.slug}/index.md)"
-    index.write_text(append_to_section(read(index), "Features", line, "_No features yet._"), encoding="utf-8")
-    print(f"✅ Feature created at features/{args.slug}/ and linked in index.md")
+    if index.is_file():
+        line = f"- [{args.title}](features/{slug}/plan.md)"
+        index.write_text(append_to_section(read(index), "Features", line, "_No features yet._"), encoding="utf-8")
+
+    if (ws / "roadmap.md").is_file():
+        sync_roadmap_file(ws)
+
+    print(f"✅ Feature created at features/{slug}/ (state: Draft)")
     return 0
 
 
@@ -390,29 +582,83 @@ def cmd_validate(args) -> int:
             if name == "technical_deal.md" and (ws / "techinal_deal.md").is_file():
                 hint = " (found legacy techinal_deal.md — rename it: git mv techinal_deal.md technical_deal.md)"
             errors.append(f"missing product root file: {name}{hint}")
-    for d in ROOT_DIRS:
+    compact = is_compact(ws)
+    for d in (COMPACT_ROOT_DIRS if compact else ROOT_DIRS):
         if not (ws / d).is_dir():
             errors.append(f"missing product root folder: {d}/")
+    if compact and not (ws / "features" / "roadmap.md").is_file():
+        errors.append("compact layout: missing features/roadmap.md")
 
-    # apps
-    apps_dir = ws / "apps"
-    for app in sorted(p for p in apps_dir.iterdir() if p.is_dir()) if apps_dir.is_dir() else []:
-        text = read(app / "app.md")
+    # apps (apps/<name>/app.md in the classic layout, app.md at the root in compact)
+    for manifest in app_manifests(ws):
+        app = manifest.parent
+        text = read(manifest)
         if not text:
-            errors.append(f"{rel(app)}: missing app.md")
+            errors.append(f"{rel(manifest)}: missing app.md")
             continue
         for f in APP_FIELDS:
             if field(text, f) is None:
-                errors.append(f"{rel(app)}/app.md: missing field '{f}'")
+                errors.append(f"{rel(manifest)}: missing field '{f}'")
         if section(text, "Boundaries") is None:
-            errors.append(f"{rel(app)}/app.md: missing '## Boundaries'")
+            errors.append(f"{rel(manifest)}: missing '## Boundaries'")
         pointer = app / "repo_pointer.md"
         if pointer.is_file() and not field(read(pointer), "repository"):
             errors.append(f"{rel(pointer)}: missing value for 'repository'")
 
     # features and epics
     for feat in features(ws):
-        for name in FEATURE_FILES:
+        if is_flat_feature(feat):
+            where = rel(feat)
+            if not (feat / "plan.md").is_file():
+                errors.append(f"{where}: missing plan.md")
+            if not (feat / "tasks.toml").is_file():
+                errors.append(f"{where}: missing tasks.toml")
+                continue
+            state, count = get_epic_state(feat)
+            if count != 1 or state not in STATES:
+                errors.append(f"{where}/tasks.toml: invalid or missing state (valid: {', '.join(STATES)})")
+                continue
+
+            plan = read(feat / "plan.md")
+            tasks = get_epic_tasks(feat)
+            examples = sorted(set(example_ids(strip_comments(section(plan, "Examples") or ""))), key=lambda s: int(s[1:]))
+
+            if state in {"WIP", "Done", "Stale"}:
+                if not tasks:
+                    errors.append(f"{where}/tasks.toml: no tasks for a feature in {state}")
+                for _, t in tasks:
+                    if not re.search(r"\b[SR]\d+\b", t):
+                        errors.append(f"{where}/tasks.toml: task does not cite S#/R#: '{t}'")
+                cited = set(re.findall(r"\b(S\d+)\b", " ".join(t for _, t in tasks)))
+                for s in examples:
+                    if s not in cited:
+                        (warnings if state == "WIP" else errors).append(f"{where}: example {s} is not covered by any task")
+            if state == "Done":
+                open_tasks = [t for done, t in tasks if not done]
+                if open_tasks:
+                    errors.append(f"{where}: state Done but {len(open_tasks)} task(s) still open")
+                if looks_stale(ws, feat):
+                    errors.append(f"{where}: plan.md changed after the feature was Done — it should be Stale (§4.5)")
+                if args.strict:
+                    skip = {"target", "node_modules", "dist", ".git", "__pycache__",
+                            ".venv", "venv", "build", ".mypy_cache", ".pytest_cache",
+                            "htmlcov", ws.name}
+                    corpus = "\n".join(
+                        read(f)
+                        for root in source_roots(ws) if root.is_dir()
+                        for f in root.rglob("*")
+                        if f.is_file()
+                        and f.name not in {"app.md", "app.toml", "repo_pointer.md"}
+                        and not any(part in skip for part in f.relative_to(root).parts)
+                        and f.stat().st_size < 2_000_000
+                    )
+                    for s in examples:
+                        if f"{feat.name}#{s}" not in corpus:
+                            where_src = ", ".join(str(r) for r in source_roots(ws))
+                            errors.append(f"{where}: no test named '{feat.name}#{s}' found under {where_src}")
+            continue
+
+        for name in (COMPACT_FEATURE_FILES if compact else FEATURE_FILES):
             if not (feat / name).is_file():
                 errors.append(f"{rel(feat)}: missing {name}")
         if not (feat / "epics").is_dir():
@@ -432,9 +678,9 @@ def cmd_validate(args) -> int:
             for name in EPIC_FILES:
                 if not (ep / name).is_file():
                     errors.append(f"{where}: missing {name}")
-            state, count = epic_state(read(ep / "quick_status.md"))
+            state, count = get_epic_state(ep)
             if count != 1:
-                errors.append(f"{where}/quick_status.md: expected exactly one state line, found {count}")
+                errors.append(f"{where}: expected exactly one state line, found {count}")
                 continue
             if state not in STATES:
                 errors.append(f"{where}: invalid state '{state}' (valid: {', '.join(STATES)})")
@@ -445,7 +691,7 @@ def cmd_validate(args) -> int:
                 errors.append(f"{rel(feat)}/index.md: epic '{ep.name}' listed as {listed[ep.name]} but state is {state}")
 
             plan = read(ep / "plan.md")
-            tasks = tasks_of(read(ep / "tasks.md"))
+            tasks = get_epic_tasks(ep)
             examples = sorted(set(example_ids(strip_comments(section(plan, "Examples") or ""))), key=lambda s: int(s[1:]))
 
             if state in {"WIP", "Done", "Stale"}:
@@ -465,16 +711,24 @@ def cmd_validate(args) -> int:
                 if looks_stale(ws, ep):
                     errors.append(f"{where}: plan.md changed after the epic was Done — it should be Stale (§4.5)")
                 if args.strict:
+                    # Compiled and vendored artifacts must not satisfy the check:
+                    # a .pyc carrying a docstring is not a test.
+                    skip = {"target", "node_modules", "dist", ".git", "__pycache__",
+                            ".venv", "venv", "build", ".mypy_cache", ".pytest_cache",
+                            "htmlcov", ws.name}
                     corpus = "\n".join(
-                        read(p) for p in (ws / "apps").rglob("*")
-                        if p.is_file()
-                        and p.name not in {"app.md", "repo_pointer.md"}
-                        and not any(part in {"target", "node_modules", "dist", ".git"} for part in p.parts)
-                        and p.stat().st_size < 2_000_000
-                    ) if (ws / "apps").is_dir() else ""
+                        read(f)
+                        for root in source_roots(ws) if root.is_dir()
+                        for f in root.rglob("*")
+                        if f.is_file()
+                        and f.name not in {"app.md", "app.toml", "repo_pointer.md"}
+                        and not any(part in skip for part in f.relative_to(root).parts)
+                        and f.stat().st_size < 2_000_000
+                    )
                     for s in examples:
                         if f"{ep.name}#{s}" not in corpus:
-                            errors.append(f"{where}: no test named '{ep.name}#{s}' found under apps/")
+                            where_src = ", ".join(str(r) for r in source_roots(ws))
+                            errors.append(f"{where}: no test named '{ep.name}#{s}' found under {where_src}")
             if state == "Blocked":
                 blockers = strip_comments(section(read(ep / "quick_status.md"), "Blockers") or "").strip()
                 if not blockers or blockers.lower().startswith("none"):
@@ -498,7 +752,7 @@ def cmd_gate_check(args) -> int:
     ws = workspace()
     ep = resolve_epic(ws, args.epic)
     plan = read(ep / "plan.md")
-    state, _ = epic_state(read(ep / "quick_status.md"))
+    state, _ = get_epic_state(ep)
     results: list[tuple[str, str]] = []
 
     def check(ok: bool, msg: str, level: str = "FAIL") -> None:
@@ -549,8 +803,14 @@ def cmd_gate_check(args) -> int:
     for q in oq:
         results.append(("FAIL", f"blocking question: {q.lstrip('-0123456789. ')}"))
 
-    results.append(("MANUAL", "slices are vertical, or the reason they are not is written under ## Slices"))
-    results.append(("MANUAL", "model fits architecture.md and technical_deal.md"))
+    if is_compact(ws):
+        # Compact trades epic-level verticality for smaller epics: the feature is
+        # the unit that has to deliver value on its own.
+        results.append(("MANUAL", "the feature this epic belongs to is a vertical slice; "
+                                  "the epic itself need not be"))
+    else:
+        results.append(("MANUAL", "slices are vertical, or the reason they are not is written under ## Slices"))
+    results.append(("MANUAL", "model fits architecture.md and app.toml"))
     results.append(("MANUAL", "every Then is observable by a user or another system"))
 
     icons = {"PASS": "✅", "FAIL": "❌", "WARN": "⚠️ ", "MANUAL": "👤"}
@@ -568,7 +828,7 @@ def cmd_set_state(args) -> int:
     ep = resolve_epic(ws, args.epic)
     if args.state not in STATES:
         die(f"invalid state '{args.state}' (valid: {', '.join(STATES)})")
-    current, _ = epic_state(read(ep / "quick_status.md"))
+    current, _ = get_epic_state(ep)
     if current not in TRANSITIONS:
         die(f"current state '{current}' is invalid; fix quick_status.md first.")
     if args.state not in TRANSITIONS[current]:
@@ -591,13 +851,16 @@ def cmd_mark_stale(args) -> int:
         return 0
     try:
         plan = Path(path_str).expanduser().resolve()
-        if plan.name != "plan.md" or plan.parent.parent.name != "epics":
+        if plan.name != "plan.md":
             return 0
         epic_dir = plan.parent
+        # Support both flat (features/<feature>/plan.md) and nested (features/<feat>/epics/<epic>/plan.md)
+        if epic_dir.parent.name not in {"epics", "features"}:
+            return 0
         ws = find_workspace(epic_dir)
         if ws is None:
             return 0
-        state, count = epic_state(read(epic_dir / "quick_status.md"))
+        state, count = get_epic_state(epic_dir)
         if count != 1 or state != "Done":
             return 0
         write_state(epic_dir, "Stale", "scpe hook",
@@ -607,10 +870,12 @@ def cmd_mark_stale(args) -> int:
             die(str(exc))
         return 0
 
-    ref = f"{epic_dir.parent.parent.name}/{epic_dir.name}"
-    msg = (f"SCPE: epic {ref} was Done and its plan.md changed, so it is now Stale. "
-           "The Tech Lead must review the difference and record Re-execute or Accept the drift "
-           "in epic_roadmap.md (run /scpe-gate).")
+    if epic_dir.parent.name == "features":
+        ref = epic_dir.name
+    else:
+        ref = f"{epic_dir.parent.parent.name}/{epic_dir.name}"
+    msg = (f"SCPE: {ref} was Done and its plan.md changed, so it is now Stale. "
+           "The Tech Lead must review the difference and record Re-execute or Accept the drift.")
     if args.from_hook:
         print(json.dumps({
             "systemMessage": msg,
@@ -625,28 +890,57 @@ def collect_status(ws: Path) -> list[dict]:
     rows = []
     for feat in features(ws):
         for ep in epics(feat):
-            state, _ = epic_state(read(ep / "quick_status.md"))
-            tasks = tasks_of(read(ep / "tasks.md"))
-            blockers = strip_comments(section(read(ep / "quick_status.md"), "Blockers") or "").strip()
+            state, _ = get_epic_state(ep)
+            tasks = get_epic_tasks(ep)
+            blockers = ""
+            qs = ep / "quick_status.md"
+            if qs.is_file():
+                b = strip_comments(section(read(qs), "Blockers") or "").strip()
+                if not b.lower().startswith("none"):
+                    blockers = b
+            tasks_toml = ep / "tasks.toml"
+            if tasks_toml.is_file():
+                try:
+                    with open(tasks_toml, "rb") as f:
+                        tdata = tomllib.load(f)
+                    bitems = tdata.get("blockers", {}).get("items", [])
+                    if bitems:
+                        blockers = "; ".join(bitems)
+                except Exception:
+                    pass
             rows.append({
                 "feature": feat.name, "epic": ep.name, "state": state or "?",
                 "rel_path": str(ep.relative_to(ws)),
                 "tasks_done": sum(1 for d, _ in tasks if d), "tasks_total": len(tasks),
-                "blockers": "" if blockers.lower().startswith("none") else blockers,
+                "blockers": blockers,
             })
     return rows
 
 
-def status_table(rows: list[dict]) -> str:
+def status_table(rows: list[dict], ws: Path | None = None) -> str:
     if not rows:
         return "_No epics yet._"
     lines = ["| Feature | Epic | State | Tasks |", "| :--- | :--- | :---: | :---: |"]
     for r in rows:
         tasks = f"{r['tasks_done']}/{r['tasks_total']}" if r["tasks_total"] else "—"
         rel_epic = r.get("rel_path", f"features/{r['feature']}/epics/{r['epic']}")
+        feat_path = ws / "features" / r['feature'] if ws else None
+        if feat_path and (feat_path / "index.md").is_file():
+            feat_link = f"features/{r['feature']}/index.md"
+        else:
+            feat_link = f"features/{r['feature']}/plan.md"
+
+        epic_path = ws / rel_epic if ws else None
+        if epic_path and (epic_path / "quick_status.md").is_file():
+            epic_link = f"{rel_epic}/quick_status.md"
+        elif epic_path and (epic_path / "tasks.toml").is_file():
+            epic_link = f"{rel_epic}/tasks.toml"
+        else:
+            epic_link = f"{rel_epic}/plan.md"
+
         lines.append(
-            f"| [{r['feature']}](features/{r['feature']}/index.md) "
-            f"| [{r['epic']}]({rel_epic}/quick_status.md) "
+            f"| [{r['feature']}]({feat_link}) "
+            f"| [{r['epic']}]({epic_link}) "
             f"| `{r['state']}` | {tasks} |"
         )
     counts = {s: sum(1 for r in rows if r["state"] == s) for s in STATES}
@@ -655,38 +949,292 @@ def status_table(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+
+def sync_roadmap_file(ws: Path) -> str:
+    rpath = ws / "roadmap.md"
+    rows = collect_status(ws)
+
+    wip = [r for r in rows if r["state"] == "WIP"]
+    ready = [r for r in rows if r["state"] == "Ready"]
+    done = [r for r in rows if r["state"] == "Done"]
+    draft = [r for r in rows if r["state"] in {"Draft", "Blocked", "Stale"}]
+
+    lines = [
+        "# 🗺️ Product Roadmap",
+        "",
+        f"_Última sincronização: {today()} via `scpe.py roadmap --sync`_",
+        "",
+        "## 🚀 Em Implementação (WIP)",
+        "| Ordem | Feature | Responsável | Tarefas | Bloqueios |",
+        "| :---: | :--- | :--- | :---: | :--- |",
+    ]
+    if wip:
+        for r in wip:
+            tasks = f"{r['tasks_done']}/{r['tasks_total']}" if r["tasks_total"] else "—"
+            lines.append(f"| **{r['feature']}** | [{r['epic']}]({r['rel_path']}) | agent | {tasks} | {r['blockers'] or 'Nenhum'} |")
+    else:
+        lines.append("| — | _Nenhuma feature em WIP no momento_ | — | — | — |")
+
+    lines.extend([
+        "",
+        "## ⏳ Próximos Prontos (Ready)",
+        "| Ordem | Feature | Dependências | Tarefas |",
+        "| :---: | :--- | :--- | :---: |",
+    ])
+    if ready:
+        for r in ready:
+            tasks = f"{r['tasks_done']}/{r['tasks_total']}" if r["tasks_total"] else "—"
+            lines.append(f"| **{r['feature']}** | [{r['epic']}]({r['rel_path']}) | — | {tasks} |")
+    else:
+        lines.append("| — | _Nenhuma feature pronta para dev_ | — | — |")
+
+    lines.extend([
+        "",
+        "## ✅ Já Entregues (Done)",
+        "| Ordem | Feature | Data de Conclusão | Tarefas |",
+        "| :---: | :--- | :---: | :---: |",
+    ])
+    if done:
+        for r in done:
+            tasks = f"{r['tasks_done']}/{r['tasks_total']}" if r["tasks_total"] else "—"
+            lines.append(f"| **{r['feature']}** | [{r['epic']}]({r['rel_path']}) | {today()} | {tasks} |")
+    else:
+        lines.append("| — | _Nenhuma feature entregue ainda_ | — | — |")
+
+    lines.extend([
+        "",
+        "## 💡 Backlog (Draft / Blocked / Stale)",
+        "| Estado | Feature | Caminho |",
+        "| :---: | :--- | :--- |",
+    ])
+    if draft:
+        for r in draft:
+            lines.append(f"| `{r['state']}` | {r['feature']}/{r['epic']} | `{r['rel_path']}` |")
+    else:
+        lines.append("| — | _Backlog vazio_ | — |")
+
+    content = "\n".join(lines) + "\n"
+    rpath.write_text(content, encoding="utf-8")
+    return content
+
+
+def cmd_roadmap(args) -> int:
+    ws = workspace()
+    content = sync_roadmap_file(ws)
+    if getattr(args, "sync", False):
+        print("✅ roadmap.md sincronizado na raiz do workspace.")
+    else:
+        print(content)
+    return 0
+
+
+def cmd_term(args) -> int:
+    ws = workspace()
+    gpath = ws / "glossary.md"
+    if not gpath.is_file():
+        die(f"glossary.md not found at {gpath}.")
+    gtext = read(gpath)
+    target = args.word.strip().lower()
+
+    pattern = re.compile(r"^##\s+([^\n]+)\n(.*?)(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
+    for m in pattern.finditer(gtext):
+        heading = m.group(1).strip()
+        if heading.lower() == target or target in heading.lower():
+            print(f"## {heading}\n{m.group(2).strip()}")
+            return 0
+    die(f"Term '{args.word}' not found in glossary.md.")
+    return 1
+
+
+def cmd_pack(args) -> int:
+    ws = workspace()
+    ep_dir = resolve_epic(ws, args.feature)
+    slice_id = int(args.slice_id)
+
+    tasks_toml = ep_dir / "tasks.toml"
+    if not tasks_toml.is_file():
+        die(f"tasks.toml not found at {ep_dir / 'tasks.toml'}. Run on a feature with tasks.toml.")
+    with open(tasks_toml, "rb") as f:
+        tasks_data = tomllib.load(f)
+
+    slices = tasks_data.get("slice", [])
+    target_slice = next((s for s in slices if s.get("id") == slice_id), None)
+    if not target_slice:
+        avail = [str(s.get("id")) for s in slices]
+        die(f"Slice {slice_id} not found in {ep_dir.name}. Available slices: {', '.join(avail)}")
+
+    covers = target_slice.get("covers", [])
+    plan_text = read(ep_dir / "plan.md") if (ep_dir / "plan.md").is_file() else ""
+
+    invariants = {}
+    br_sec = strip_comments(section(plan_text, "Business Rules") or "")
+    for line in br_sec.splitlines():
+        line_s = line.strip()
+        m = re.match(r"^\s*-\s*\*\*(R\d+):\*\*\s*(.*)$", line_s)
+        if m and m.group(1) in covers:
+            invariants[m.group(1)] = m.group(2).strip()
+
+    scenarios = {}
+    ex_sec = strip_comments(section(plan_text, "Examples") or "")
+    for line in ex_sec.splitlines():
+        line_s = line.strip()
+        m = re.match(r"^\s*-\s*\*\*(S\d+)[^:]*:\*\*\s*(.*)$", line_s)
+        if not m:
+            m = re.match(r"^\s*-\s*\*\*(S\d+)\b[^*]*\*\*\s*(.*)$", line_s)
+        if m and m.group(1) in covers:
+            scenarios[m.group(1)] = m.group(2).strip()
+
+    dm_sec = strip_comments(section(plan_text, "Domain Model") or "")
+    terms_raw = field(dm_sec, "Terms") or ""
+    terms = [re.sub(r"\(.*?\)", "", t).strip() for t in terms_raw.split(",") if t.strip()]
+
+    domain_terms = {}
+    glossary_path = ws / "glossary.md"
+    if glossary_path.is_file():
+        gtext = read(glossary_path)
+        for t in terms:
+            m = re.search(rf"^## {re.escape(t)}[ \t]*$(.*?)(?=^## |\Z)", gtext, re.MULTILINE | re.DOTALL)
+            if m:
+                domain_terms[t] = m.group(1).strip()
+
+    apps_info = {}
+    for app_name in target_slice.get("apps", []):
+        app_toml = ws / "apps" / app_name / "app.toml"
+        app_md = ws / "apps" / app_name / "app.md"
+        if app_toml.is_file():
+            with open(app_toml, "rb") as f:
+                apps_info[app_name] = tomllib.load(f)
+        elif app_md.is_file():
+            mtext = read(app_md)
+            apps_info[app_name] = {
+                "name": field(mtext, "name"),
+                "stack": field(mtext, "stack"),
+                "run": field(mtext, "run"),
+                "test": field(mtext, "test"),
+                "boundaries": strip_comments(section(mtext, "Boundaries") or "").strip()
+            }
+
+    logs = tasks_data.get("log", [])
+    last_learning = logs[-1] if logs else None
+    tasks = [t for t in tasks_data.get("task", []) if t.get("slice_id") == slice_id]
+
+    payload = {
+        "slice": target_slice,
+        "tasks": tasks,
+        "invariants": invariants,
+        "scenarios": scenarios,
+        "domain_terms": domain_terms,
+        "apps": apps_info,
+        "previous_learning": last_learning,
+    }
+
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        lines = [
+            "# ================================================================",
+            f"# SCPE SLICE PACK: {ep_dir.name} [Slice {slice_id}]",
+            "# ================================================================",
+            "",
+            "[slice]",
+            f'id = {target_slice.get("id")}',
+            f'name = "{target_slice.get("name", "")}"',
+            f'description = "{target_slice.get("description", "")}"',
+            f'covers = {json.dumps(covers)}',
+            f'apps = {json.dumps(target_slice.get("apps", []))}',
+            f'verify = "{target_slice.get("verify", "")}"',
+            "",
+            "[invariants]",
+        ]
+        for rid, rdesc in invariants.items():
+            lines.append(f'{rid} = "{rdesc}"')
+        if not invariants:
+            lines.append("# No invariants in covers")
+
+        lines.extend(["", "[scenarios]"])
+        for sid, sdesc in scenarios.items():
+            lines.append(f'{sid} = "{sdesc}"')
+        if not scenarios:
+            lines.append("# No scenarios in covers")
+
+        lines.extend(["", "[domain_terms]"])
+        for tname, tdef in domain_terms.items():
+            first_line = tdef.splitlines()[0] if tdef else ""
+            lines.append(f'# {tname}: {first_line}')
+
+        lines.extend(["", "[app_boundaries]"])
+        for aname, ainfo in apps_info.items():
+            bounds = ainfo.get("boundaries") or ainfo.get("boundaries", {}).get("forbidden", [])
+            lines.append(f'# {aname}: {bounds}')
+
+        if last_learning:
+            lines.extend([
+                "",
+                "[previous_learning]",
+                f'date = "{last_learning.get("date")}"',
+                f'entry = "{last_learning.get("entry")}"'
+            ])
+
+        print("\n".join(lines))
+    return 0
+
+
 def cmd_status(args) -> int:
     ws = workspace()
     rows = collect_status(ws)
     if args.json:
         print(json.dumps(rows, indent=2, ensure_ascii=False))
     else:
-        print(status_table(rows))
+        print(status_table(rows, ws=ws))
     if args.write:
+        sync_roadmap_file(ws)
         qs = ws / "quick_status.md"
-        text = read(qs)
-        block = f"{STATUS_START}\n{status_table(rows)}\n{STATUS_END}"
-        if STATUS_START in text and STATUS_END in text:
-            text = re.sub(re.escape(STATUS_START) + r".*?" + re.escape(STATUS_END),
-                          lambda _: block, text, flags=re.DOTALL)
-        else:
-            text = append_to_section(text, "Epics", block)
-        text = re.sub(r"^(- \*\*updated:\*\*).*$", rf"\g<1> {today()}", text, count=1, flags=re.MULTILINE)
-        qs.write_text(text, encoding="utf-8")
+        if qs.is_file():
+            text = read(qs)
+            block = f"{STATUS_START}\n{status_table(rows, ws=ws)}\n{STATUS_END}"
+            if STATUS_START in text and STATUS_END in text:
+                text = re.sub(re.escape(STATUS_START) + r".*?" + re.escape(STATUS_END),
+                              lambda _: block, text, flags=re.DOTALL)
+            else:
+                text = append_to_section(text, "Epics", block)
+            text = re.sub(r"^(- \*\*updated:\*\*).*$", rf"\g<1> {today()}", text, count=1, flags=re.MULTILINE)
+            qs.write_text(text, encoding="utf-8")
         if not args.json:
-            print("\n✅ quick_status.md updated")
+            print("\n✅ roadmap.md updated")
     return 0
 
 
 def cmd_complete_task(args) -> int:
     ws = workspace()
     epic_dir = resolve_epic(ws, args.epic)
+    target = args.task.strip()
+    tasks_toml = epic_dir / "tasks.toml"
+    if tasks_toml.is_file():
+        text = read(tasks_toml)
+        clean_target = target.lstrip("Tt")
+        pattern = rf'(\[\[task\]\][^\[]*?id\s*=\s*["\'](?:T)?{re.escape(clean_target)}["\'][^\[]*?)'
+        m = re.search(pattern, text, re.DOTALL)
+        if m:
+            block = m.group(1)
+            if re.search(r'done\s*=\s*true', block):
+                print(f"ℹ️ Task {target} already marked as done in tasks.toml")
+                return 0
+            if re.search(r'done\s*=\s*false', block):
+                new_block = re.sub(r'done\s*=\s*false', 'done = true', block)
+            else:
+                new_block = block.rstrip() + '\ndone = true\n'
+            text = text.replace(block, new_block, 1)
+            tasks_toml.write_text(text, encoding="utf-8")
+            print(f"✅ Marked task {target} as complete in tasks.toml")
+            if (ws / "roadmap.md").is_file():
+                sync_roadmap_file(ws)
+            return 0
+
     tasks_path = epic_dir / "tasks.md"
     if not tasks_path.is_file():
-        die(f"tasks.md not found at {tasks_path}")
+        die(f"tasks.toml or tasks.md not found at {epic_dir}")
     text = read(tasks_path)
     lines = text.splitlines()
-    target = args.task.strip()
     updated = False
 
     new_lines = []
@@ -718,6 +1266,8 @@ def cmd_complete_task(args) -> int:
 
     tasks_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     print(f"✅ Marked task as complete: {matched_desc}")
+    if (ws / "roadmap.md").is_file():
+        sync_roadmap_file(ws)
     return 0
 
 
@@ -737,7 +1287,22 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("feature", help="scaffold features/<slug>/")
     p.add_argument("slug")
     p.add_argument("title")
+    p.add_argument("--branch", action="store_true", help="create and checkout git branch feat/<slug>")
     p.set_defaults(func=cmd_feature)
+
+    p = sub.add_parser("pack", help="compile slice context for JIT agent execution")
+    p.add_argument("feature", help="<feature> or <feature>/<epic>")
+    p.add_argument("slice_id", help="slice id (e.g. 1)")
+    p.add_argument("--json", action="store_true", help="output as JSON")
+    p.set_defaults(func=cmd_pack)
+
+    p = sub.add_parser("term", help="lookup term in glossary.md")
+    p.add_argument("word", help="term to lookup")
+    p.set_defaults(func=cmd_term)
+
+    p = sub.add_parser("roadmap", help="display or sync product root roadmap.md")
+    p.add_argument("--sync", action="store_true", help="write/update roadmap.md at product root")
+    p.set_defaults(func=cmd_roadmap)
 
     p = sub.add_parser("epic", help="scaffold features/<feature>/epics/<slug>/ in Draft")
     p.add_argument("feature")

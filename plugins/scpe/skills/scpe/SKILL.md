@@ -34,33 +34,64 @@ work, read `index.md`, `product_vision.md`, `glossary.md`, `architecture.md` and
 ```text
 <product>/
 ├── index.md  product_vision.md  roadmap.md  glossary.md  architecture.md
-├── technical_deal.md  team_playbook.md  quick_status.md  AGENTS.md  CLAUDE.md
+├── technical_deal.md  team_playbook.md  AGENTS.md  CLAUDE.md
 ├── assets/
-├── apps/<app>/app.md            # + src/ or repo_pointer.md
-└── features/<feature>/
-    ├── index.md  feat_roadmap.md  quick_status.md
-    └── epics/<epic>/
-        ├── index.md  plan.md  tasks.md  quick_status.md  epic_roadmap.md
+├── apps/<app>/app.toml          # typed manifest + boundaries (or legacy app.md)
+└── features/
+    └── 00X-<slug>/              # flat, sequential feature folder
+        ├── plan.md              # intent, rules (R#), examples (S#), slices
+        └── tasks.toml           # state, slices, task graph, temporal log
 ```
 
 Formats are in `references/SCPE_METHOD.md` §5; the scaffolds in `templates/` follow them.
-Short fields always use `- **field:** value`.
+Machine metadata, manifests, and task execution graphs use TOML (`app.toml`, `tasks.toml`), while domain modeling remains living Markdown (`plan.md`, `glossary.md`).
+
+### Compact layout ("tiny SCPE")
+
+A smaller product may flatten the tree. The tooling detects this and adapts; no
+flag or config is involved.
+
+```text
+<product>/
+├── index.md  product_vision.md  roadmap.md  glossary.md  architecture.md
+├── technical_deal.md  team_playbook.md  AGENTS.md  CLAUDE.md
+├── app.toml                    # the manifest at root: no apps/ folder
+├── adr.md                      # one section per decision: no adr/ folder
+└── features/
+    └── 00X-<slug>/             # plan.md + tasks.toml
+```
+
+A workspace is compact when `app.toml` (or `app.md`) exists at its root and there is no `apps/`
+folder. In that mode: `apps/` and `assets/` are not required, each feature consists of
+`plan.md` and `tasks.toml`, and the root `roadmap.md` is auto-synced via `scpe roadmap --sync`.
+
+Because compact workspaces usually sit beside the code rather than containing
+it, `validate --strict` looks for `<epic>#S#` tests under the path named by
+`- **source:** <path>` in `app.md` (relative to the workspace), falling back to
+the workspace's parent directory.
+
+**Slicing in compact workspaces.** The *feature* must be a vertical slice: on
+its own it delivers something a user can use. An *epic* need not be. This is the
+one deliberate trade against §4.2.1 of the method, and it buys smaller epics: an
+epic may be a shared capability that several epics of the same feature build on,
+as long as the feature around it still delivers value. Epics keep their
+`## Slices`, and an epic with no user-facing behaviour of its own says so there.
 
 ## 2. Wave pipeline
 
 | Wave | Who | You do |
 |---|---|---|
-| **Upstream** | Developers + agent as co-pilot | Draft vision, glossary terms, feature `index.md`, epic `plan.md`. Ask; never settle business questions yourself. Epic stays `Draft`. |
-| **Readiness Gate** | Tech Lead (a human) | Run `gate-check`, present results, wait for explicit human approval, then record `Ready` with `--by <that person>`. |
-| **Downstream** | Agent, reviewed by Developers | Only on `Ready` epics: `WIP` → `tasks.md` → code and tests slice by slice → propose `Done`. |
-| **Audit** | Everyone | Log learnings and blockers in `quick_status.md`; refresh the product panel with `status --write`. |
+| **Upstream** | Developers + agent as co-pilot | Draft vision, glossary terms, and feature `plan.md`. Ask; never settle business questions yourself. Feature stays `Draft`. |
+| **Readiness Gate** | Tech Lead (a human) | Run `gate-check`, present results, compile initial `tasks.toml`, wait for explicit human approval, then record `Ready`. |
+| **Downstream (JIT)** | Agent, reviewed by Developers | Only on `Ready` features: Compile slice with `scpe pack <feat> <slice_id>`. Implement code and tests slice by slice inside app boundaries. |
+| **Audit & Sync** | Everyone | Log learnings in `tasks.toml`; sync product roadmap with `scpe roadmap --sync`. |
 
 Incremental Feature Discovery: open only the most critical feature now; do not map the whole system.
 Vertical slicing is the default: each slice cuts through every layer and gives a user something real.
 
-## 3. Epic states
+## 3. Feature / Epic states
 
-Exactly one `- **state:**` line in the epic `quick_status.md`. Allowed transitions (enforced by `set-state`):
+Declared in `tasks.toml` under `[state]`. Allowed transitions (enforced by `set-state`):
 
 | From | To | Set by |
 |---|---|---|
@@ -68,27 +99,29 @@ Exactly one `- **state:**` line in the epic `quick_status.md`. Allowed transitio
 | `Ready` | `WIP` / `Blocked` | Agent / Agent or Developer |
 | `WIP` | `Done` / `Blocked` | Agent, after Developer review / Agent or Developer |
 | `Blocked` | `Ready` / `Draft` | whoever resolves it (Draft when the model must be reworked) |
-| `Done` | `Stale` | automatic on any edit to `plan.md` (plugin hook) |
+| `Done` | `Stale` | automatic on any edit to `plan.md` |
 | `Stale` | `Ready` / `Done` | Tech Lead: Re-execute / Accept the drift (with a note) |
 
 **Never** set `Ready` yourself and never approve your own work. Always change state through
-`set-state` so the log and the feature index stay in sync.
+`set-state` so the log and roadmap stay in sync.
 
 ## 4. Downstream protocol
 
-1. Confirm the epic is `Ready`; `set-state <f>/<e> WIP --by agent`.
-2. Write `tasks.md` from `plan.md`: `- [ ] T1 — description (S1, R2)`. Every task cites `S#`/`R#`;
-   every example is covered by a task.
-3. Build slice by slice in `apps/<app>/` for the apps listed in the epic `index.md`, following
-   `app.md` boundaries and `technical_deal.md` standards. Each slice runs before the next starts.
-4. Name at least one test per example `<epic>#S#` (e.g. `pix-payment#S2 expired charge can be recreated`).
-5. Log dated learnings in `quick_status.md`. Blocked → `set-state … Blocked` and fill `## Blockers`.
+1. Confirm the feature is `Ready`; `set-state <feature> WIP --by agent`.
+2. **JIT Context Compilation Invariant (Do NOT dump raw markdowns):**
+   - Run `python3 "$S" pack <feature> <slice_id>` to compile the exact slice context (< 1k tokens).
+   - This payload contains ONLY the slice's `R#` rules, `S#` scenarios, relevant domain terms from `glossary.md`, and application commands/boundaries from `app.toml`.
+   - Use `python3 "$S" term <word>` for instant definition lookups if needed.
+3. Build slice by slice in `apps/<app>/`, strictly adhering to `app.toml` boundaries and `technical_deal.md` standards.
+4. Name at least one test per example `<feature>#S#` (e.g. `001-pix-payment#S2 expired charge can be recreated`).
+5. Log dated learnings in `tasks.toml` under `[[log]]`. Blocked → `set-state … Blocked`.
 6. **Immediate Task Completion (Strict Invariant):**
-   - **Always mark tasks as done (`- [x]`) immediately upon completing and verifying each task.**
-   - Never proceed to the next task or finish an execution step leaving completed tasks unmarked (`- [ ]`).
-   - Use `python3 "$S" complete-task <feature>/<epic> <task_id_or_number>` or edit `tasks.md` directly.
+   - **Always mark tasks as done immediately upon completing and verifying each task.**
+   - Never proceed to the next task leaving completed tasks pending.
+   - Use `python3 "$S" complete-task <feature> <task_id>` or update `tasks.toml`.
    - When all tasks are checked off, ask a Developer to review, then `set-state … Done`.
-7. Commits: `docs:` for specification, `feat:`/`fix:`/`test:` for code — never mixed.
+7. **Roadmap Sync:** Run `python3 "$S" roadmap --sync` to update the product-wide `roadmap.md`.
+8. Commits: `docs:` for specification, `feat:`/`fix:`/`test:` for code — never mixed.
 
 Found a gap in the plan while building? Stop and ask. Do not silently change `plan.md` or code around it.
 
@@ -99,11 +132,13 @@ Found a gap in the plan while building? Stop and ask. Do not silently change `pl
 | Action | Command |
 |---|---|
 | New product workspace | `python3 "$S" init <name> [--path DIR] [--app NAME:TYPE]... [--no-git]` |
-| New feature | `python3 "$S" feature <slug> "<Title>"` |
-| New epic (Draft) | `python3 "$S" epic <feature> <slug> "<Title>"` |
-| Complete task in epic | `python3 "$S" complete-task <feature>/<epic> <task_id_or_number>` |
-| Readiness Gate lint | `python3 "$S" gate-check <feature>/<epic>` |
-| Change state | `python3 "$S" set-state <feature>/<epic> <State> --by "<who>" [--note "..."]` |
+| New feature (auto 00X) | `python3 "$S" feature <slug> "<Title>" [--branch]` |
+| Compile slice context (JIT) | `python3 "$S" pack <feature> <slice_id> [--json]` |
+| Glossary term lookup | `python3 "$S" term <word>` |
+| Sync product roadmap | `python3 "$S" roadmap [--sync]` |
+| Complete task in feature | `python3 "$S" complete-task <feature> <task_id>` |
+| Readiness Gate lint | `python3 "$S" gate-check <feature>` |
+| Change state | `python3 "$S" set-state <feature> <State> --by "<who>" [--note "..."]` |
 | Validate workspace | `python3 "$S" validate [--strict]` |
 | Status panel | `python3 "$S" status [--json] [--write]` |
 

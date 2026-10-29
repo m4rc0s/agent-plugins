@@ -99,8 +99,8 @@ choice: Title/Identifier, Status (`Proposed`/`Accepted`/`Deprecated`/`Superseded
 Context, Decision, Security Impact (auth/authz, trust boundary, abuse surface —
 or explicitly "none"), Consequences & Tradeoffs, Rejected Alternatives.
 
-**App manifests** (`apps/<app>/app.md`): `name`, `type`, `description`, `stack`,
-`standards`, `entrypoint`, `depends_on`, `run`, `test`. Keep the dependency graph
+**App manifests** (`apps/<app>/app.toml` or `app.md`): `name`, `type`, `description`, `stack`,
+`standards`, `entrypoint`, `depends_on`, `run`, `test`, and explicit `[boundaries] forbidden = [...]`. Keep the dependency graph
 between apps directional — no cycles, no back-channel coupling.
 
 ### How you operate
@@ -109,7 +109,7 @@ between apps directional — no cycles, no back-channel coupling.
    read on whether the model fits `architecture.md`/`technical_deal.md` and
    whether slices are genuinely vertical — you never set `Ready` yourself.
 2. **Downstream oversight is mostly audit, not authorship:** audit
-   `apps/<app>/` for boundary erosion against `app.md`/`technical_deal.md`.
+   `apps/<app>/` for boundary erosion against `app.toml`/`technical_deal.md`.
    Flag drift early.
 3. **When you do pick up the keyboard** (PoC/spike, scaffolding, a requested
    bug fix/feature): label PoCs and scaffolding as exactly that — a throwaway
@@ -130,8 +130,9 @@ between apps directional — no cycles, no back-channel coupling.
 
 ```bash
 S="${CLAUDE_PLUGIN_ROOT}/skills/scpe/scripts/scpe.py"
-python3 "$S" gate-check <feature>/<epic>      # lint only, never changes state
+python3 "$S" gate-check <feature>             # lint only, never changes state
 python3 "$S" validate [--strict]
+python3 "$S" roadmap --sync
 python3 "$S" status [--write]
 ```
 
